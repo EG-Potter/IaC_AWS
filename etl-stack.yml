@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: template to deploy etl application.
+
+Parameters:
+  DataBucketName:
+    Type: String
+    Default: ep-data-bucket
+    Description: ep-data-bucket S3 bucket.
+  TransformBucketName:
+    Type: String
+    Default: ep-transform-bucket
+    Description: ep-transform-bucket S3 bucket.
+  SensitiveDataBucketName:
+    Type: String
+    Description: ep-sensitive-data S3 bucket.
+    Default: ep-sensitive-data-bucket
+  NetworkStackName:
+    Type: String
+    Default: project-networking
+    Description: Network stack with VPC containing Redshift instance.
+  SSMParameterName:
+    Type: String
+    Default: deja_brew_redshift_settings
+    Description: Name of the SSM parameter to use to connect to Redshift.
+
+Resources:
+  EPTransformLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ep-transform-lambda
+      Runtime: python3.9
+      Handler: sample_lambda_code.lambda_handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/lambda-execution-role'
+      Timeout: 900
+      ReservedConcurrentExecutions: 10
+      Code: ./code_templates/transform
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue:
+              !Sub 'project-networking-VPCSGID'
+        SubnetIds:
+          - Fn::ImportValue:
+              !Sub 'project-networking-PrivateSubnet0ID'
+      Environment:
+        Variables:
+          SSM_PARAMETER_NAME: !Ref SSMParameterName
+
+  EPDataS3Bucket:
+    Type: "AWS::S3::Bucket"
+    DependsOn:
+      - DataS3BucketPermission
+    Properties:
+      BucketName: !Ref DataBucketName
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt EPTransformLambdaFunction.Arn
+      PublicAccessBlockConfiguration:
+          BlockPublicAcls: True
+          BlockPublicPolicy: True
+          IgnorePublicAcls: True
+          RestrictPublicBuckets: True
+
+  DataS3BucketPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EPTransformLambdaFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub "arn:aws:s3:::${DataBucketName}"
+
+  EPLoadLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ep-load-lambda
+      Runtime: python3.9
+      Handler: sample_lambda_code.lambda_handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/lambda-execution-role'
+      Timeout: 900
+      ReservedConcurrentExecutions: 10
+      Code: ./code_templates/load
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue:
+              !Sub 'project-networking-VPCSGID'
+        SubnetIds:
+          - Fn::ImportValue:
+              !Sub 'project-networking-PrivateSubnet0ID'
+      Environment:
+        Variables:
+          SSM_PARAMETER_NAME: !Ref SSMParameterName
+
+  EPTransformS3Bucket:
+    Type: "AWS::S3::Bucket"
+    DependsOn:
+      - TransformS3BucketPermission
+    Properties:
+      BucketName: !Ref TransformBucketName
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt EPLoadLambdaFunction.Arn
+      PublicAccessBlockConfiguration:
+          BlockPublicAcls: True
+          BlockPublicPolicy: True
+          IgnorePublicAcls: True
+          RestrictPublicBuckets: True
+
+  TransformS3BucketPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EPLoadLambdaFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub "arn:aws:s3:::${TransformBucketName}"
+
+  # Can remove if not needed.
+  EPSensitiveDataS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref SensitiveDataBucketName
+      PublicAccessBlockConfiguration:
+          BlockPublicAcls: True
+          BlockPublicPolicy: True
+          IgnorePublicAcls: True
+          RestrictPublicBuckets: True

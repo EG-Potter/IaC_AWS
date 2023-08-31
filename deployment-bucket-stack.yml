@@ -1,0 +1,19 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ep-deployment-bucket template to create the deployment bucket for CF files + Lambda zips
+
+Parameters:
+  EPBucketNameDeployment:
+    Type: String
+    Description: ep-deployment-bucket S3 bucket.
+    Default: ep-deployment-bucket
+
+Resources:
+  EPDeploymentS3Bucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Ref EPBucketNameDeployment
+      PublicAccessBlockConfiguration:
+          BlockPublicAcls: True
+          BlockPublicPolicy: True
+          IgnorePublicAcls: True
+          RestrictPublicBuckets: True
